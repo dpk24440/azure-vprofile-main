@@ -19,7 +19,7 @@ variables:
   - group: vprofilevariables
 
 stages:
-  # Stage 1: Terraform Initialization (Download & Upload Binary)
+  # Stage 1: Terraform Init
   - stage: TerraformInit
     displayName: 'Terraform Initialization'
     jobs:
@@ -30,26 +30,22 @@ stages:
         steps:
           - checkout: self
 
-          # Download and Prepare Terraform
           - task: Bash@3
-            displayName: 'Download Terraform 1.6.3'
+            displayName: 'Download and Setup Terraform 1.6.3'
             inputs:
               targetType: 'inline'
               script: |
-                mkdir -p $(Pipeline.Workspace)/tfbin
-                curl -fsSL -o $(Pipeline.Workspace)/tfbin/terraform.zip https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
-                unzip -o $(Pipeline.Workspace)/tfbin/terraform.zip -d $(Pipeline.Workspace)/tfbin/
-                chmod +x $(Pipeline.Workspace)/tfbin/terraform
-                echo "Terraform version:"
-                $(Pipeline.Workspace)/tfbin/terraform version
+                mkdir -p $(Pipeline.Workspace)/terraform-bin
+                curl -fsSL -o $(Pipeline.Workspace)/terraform-bin/terraform.zip https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
+                unzip -o $(Pipeline.Workspace)/terraform-bin/terraform.zip -d $(Pipeline.Workspace)/terraform-bin/
+                chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+                $(Pipeline.Workspace)/terraform-bin/terraform version
 
-          # Publish as Artifact
-          - publish: $(Pipeline.Workspace)/tfbin
+          - publish: $(Pipeline.Workspace)/terraform-bin
             artifact: terraform-bin
 
-          # Terraform Init
           - script: |
-              $(Pipeline.Workspace)/tfbin/terraform init \
+              $(Pipeline.Workspace)/terraform-bin/terraform init \
                 -backend-config="bucket=$(BUCKET_TF_STATE)" \
                 -backend-config="key=terraform.tfstate" \
                 -backend-config="region=$(AWS_REGION)" \
@@ -57,13 +53,13 @@ stages:
             displayName: 'Terraform Init'
             workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
 
-  # Stage 2: Terraform Format & Validate
+  # Stage 2: Terraform Validate
   - stage: TerraformValidate
     displayName: 'Terraform Format & Validate'
     dependsOn: TerraformInit
     jobs:
       - job: ValidateJob
-        displayName: 'Terraform Format Check & Validation'
+        displayName: 'Terraform Format & Validate'
         pool:
           vmImage: 'ubuntu-latest'
         steps:
@@ -73,12 +69,18 @@ stages:
             artifact: terraform-bin
 
           - script: |
-              echo "##vso[task.setvariable variable=PATH]$(Pipeline.Workspace)/terraform-bin:$(PATH)"
-            displayName: 'Add Terraform to PATH'
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+              echo "##vso[task.setvariable variable=PATH]=$(Pipeline.Workspace)/terraform-bin:$(PATH)"
+            displayName: 'Make Terraform Executable and Add to PATH'
 
-          - script: terraform validate
-            displayName: 'Terraform Validate'
-            workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+          - task: Bash@3
+            displayName: 'Terraform Fmt and Validate'
+            inputs:
+              targetType: 'inline'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+              script: |
+                terraform fmt -check
+                terraform validate
 
   # Stage 3: Terraform Plan
   - stage: TerraformPlan
@@ -96,24 +98,17 @@ stages:
             artifact: terraform-bin
 
           - script: |
-              echo "##vso[task.setvariable variable=PATH]$(Pipeline.Workspace)/terraform-bin:$(PATH)"
-            displayName: 'Add Terraform to PATH'
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+              echo "##vso[task.setvariable variable=PATH]=$(Pipeline.Workspace)/terraform-bin:$(PATH)"
+            displayName: 'Make Terraform Executable and Add to PATH'
 
           - task: Bash@3
             displayName: 'Terraform Plan'
-            name: TerraformPlan
-            continueOnError: true
             inputs:
               targetType: 'inline'
               workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
-              script: terraform plan -no-color -input=false -out=planfile
-
-          - task: Bash@3
-            displayName: 'Fail if Terraform Plan Failed'
-            condition: failed('TerraformPlan')
-            inputs:
-              targetType: 'inline'
-              script: exit 1
+              script: |
+                terraform plan -no-color -input=false -out=planfile
 
   # Stage 4: Terraform Apply
   - stage: TerraformApply
@@ -132,8 +127,9 @@ stages:
             artifact: terraform-bin
 
           - script: |
-              echo "##vso[task.setvariable variable=PATH]$(Pipeline.Workspace)/terraform-bin:$(PATH)"
-            displayName: 'Add Terraform to PATH'
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+              echo "##vso[task.setvariable variable=PATH]=$(Pipeline.Workspace)/terraform-bin:$(PATH)"
+            displayName: 'Make Terraform Executable and Add to PATH'
 
           - task: Bash@3
             displayName: 'Terraform Apply (only on main)'
@@ -142,7 +138,7 @@ stages:
               workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
               script: terraform apply -auto-approve -input=false -parallelism=1 planfile
 
-  # Stage 5: Configure AWS CLI
+  # Stage 5: AWS CLI Configuration
   - stage: AWSCLISetup
     displayName: 'Configure AWS CLI'
     dependsOn: TerraformApply
@@ -158,7 +154,7 @@ stages:
               awsCredentials: 'eks-aws-connection'
               regionName: '$(AWS_REGION)'
 
-  # Stage 6: Update kubeconfig
+  # Stage 6: Update Kubeconfig
   - stage: KubeconfigUpdate
     displayName: 'Update kubeconfig'
     dependsOn: AWSCLISetup
@@ -173,11 +169,9 @@ stages:
           - task: Bash@3
             name: GetKubeconfig
             displayName: 'Update kubeconfig'
-            condition: succeeded()
             inputs:
               targetType: 'inline'
-              script: |
-                aws eks update-kubeconfig --name $(EKS_CLUSTER) --region $(AWS_REGION)
+              script: aws eks update-kubeconfig --name $(EKS_CLUSTER) --region $(AWS_REGION)
 
   # Stage 7: Install NGINX Ingress Controller
   - stage: NGINXIngressInstall
