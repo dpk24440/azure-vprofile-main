@@ -19,41 +19,96 @@ variables:
   - group: vprofilevariables
 
 stages:
-  - stage: Terraform
-    displayName: "Apply Terraform Code Changes"
-    jobs:
-      - job: TerraformJob
-        displayName: "Terraform Job"
-        pool:
-          vmImage: 'ubuntu-latest'
-        workspace:
-          clean: all
-        steps:
-          - task: Checkout@1
-            displayName: "Checkout source"
+- stage: TerraformStage
+  displayName: 'Provision AWS Infrastructure with Terraform'
+  jobs:
+  - job: TerraformJob
+    displayName: 'Terraform Apply & Post-Actions'
+    pool:
+      vmImage: 'ubuntu-latest'
 
-          - task: TerraformInstaller@1
-            displayName: "Install Terraform"
-            inputs:
-              terraformVersion: '1.6.3'
+    steps:
+    - checkout: self
 
-          - script: terraform init -backend-config="bucket=$(BUCKET_TF_STATE)"
-            displayName: "Terraform Init"
-            workingDirectory: ./terraform
+    - task: Bash@3
+      displayName: 'Install Terraform 1.6.3'
+      inputs:
+        targetType: 'inline'
+        script: |
+          curl -fsSL -o terraform.zip https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/
+          terraform -version
 
-          - script: terraform fmt -check
-            displayName: "Terraform Format Check"
-            workingDirectory: ./terraform
+    - task: Bash@3
+      displayName: 'Terraform Init'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+        script: |
+          terraform init \
+            -backend-config="bucket=$(BUCKET_TF_STATE)" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=$(AWS_REGION)" \
+            -reconfigure
 
-          - script: terraform validate
-            displayName: "Terraform Validate"
-            workingDirectory: ./terraform
+    - task: Bash@3
+      displayName: 'Terraform Format Check'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+        script: terraform fmt -check
 
-          - script: |
-              terraform plan -no-color -input=false -out planfile || echo "##vso[task.setvariable variable=TF_PLAN_FAILED]true"
-            displayName: "Terraform Plan"
-            workingDirectory: ./terraform
+    - task: Bash@3
+      displayName: 'Terraform Validate'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+        script: terraform validate
 
-          - script: |
-              if [ "$(TF_PLAN_FAILED)" == "true" ]; then exit 1; fi
-            displayName: "Fail if Terraform Plan Failed"
+    - task: Bash@3
+      displayName: 'Terraform Plan'
+      name: TerraformPlan
+      continueOnError: true
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+        script: terraform plan -no-color -input=false -out=planfile
+
+    - task: Bash@3
+      displayName: 'Fail if Terraform Plan Failed'
+      condition: failed('TerraformPlan')
+      inputs:
+        targetType: 'inline'
+        script: exit 1
+
+    - task: Bash@3
+      displayName: 'Terraform Apply (only on main)'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+        script: terraform apply -auto-approve -input=false -parallelism=1 planfile
+
+    - task: AWSCLI@1
+      displayName: 'Configure AWS CLI'
+      inputs:
+        awsCredentials: 'eks-aws-connection'
+        regionName: '$(AWS_REGION)'
+
+    - task: Bash@3
+      name: GetKubeconfig
+      displayName: 'Update kubeconfig'
+      condition: succeeded()
+      inputs:
+        targetType: 'inline'
+        script: |
+          aws eks update-kubeconfig --name $(EKS_CLUSTER) --region $(AWS_REGION)
+
+    - task: Bash@3
+      displayName: 'Install NGINX Ingress Controller'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        targetType: 'inline'
+        script: |
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.1/deploy/static/provider/cloud/deploy.yaml
