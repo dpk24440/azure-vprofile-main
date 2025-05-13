@@ -32,11 +32,6 @@ stages:
       steps:
         - checkout: self
 
-        - task: AwsCli@1
-          displayName: 'Configure AWS Credentials'
-          inputs:
-            awsCredentials: 'eks-aws-connection'
-
         - task: Bash@3
           displayName: 'Download and Install Terraform'
           inputs:
@@ -74,11 +69,6 @@ stages:
         - download: current
           artifact: terraform-bin
 
-        - task: AwsCli@1
-          displayName: 'Configure AWS Credentials'
-          inputs:
-            awsCredentials: 'eks-aws-connection'
-
         - task: Bash@3
           displayName: 'Terraform Fmt & Validate'
           inputs:
@@ -105,11 +95,6 @@ stages:
 
         - download: current
           artifact: terraform-bin
-
-        - task: AwsCli@1
-          displayName: 'Configure AWS Credentials'
-          inputs:
-            awsCredentials: 'eks-aws-connection'
 
         - task: Bash@3
           displayName: 'Terraform Plan'
@@ -143,11 +128,6 @@ stages:
 
         - download: current
           artifact: tfplan
-
-        - task: AwsCli@1
-          displayName: 'Configure AWS Credentials'
-          inputs:
-            awsCredentials: 'eks-aws-connection'
 
         - task: Bash@3
           displayName: 'Terraform Apply'
