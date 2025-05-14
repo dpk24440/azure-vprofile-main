@@ -46,11 +46,28 @@ stages:
         - publish: terraform-bin
           artifact: terraform-bin
 
-        # Download the artifact so we can reference it properly
+    # Separate job to download and use the published artifact
+    - job: TerraformInit
+      dependsOn: InitJob
+      displayName: 'Run Terraform Init'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - checkout: self
+
+        # Download the artifact from previous job
         - download: current
           artifact: terraform-bin
 
-        # Initialize Terraform
+        # Ensure the terraform binary is executable
+        - task: Bash@3
+          displayName: 'Make Terraform Executable'
+          inputs:
+            targetType: 'inline'
+            script: |
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+
+        # Run Terraform Init
         - task: Bash@3
           displayName: 'Terraform Init'
           env:
