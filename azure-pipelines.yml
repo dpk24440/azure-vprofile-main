@@ -56,6 +56,7 @@ stages:
             targetType: 'inline'
             workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
             script: |
+              export PATH=$(Pipeline.Workspace)/terraform-bin:$PATH
               terraform init
 
 # ------------------------------------------
