@@ -138,12 +138,23 @@ stages:
           artifact: terraform-bin
 
         - task: Bash@3
+          displayName: 'Make Terraform Executable'
+          inputs:
+            targetType: 'inline'
+            script: |
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+
+        - task: Bash@3
           displayName: 'Terraform Plan'
+          env:
+            AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+            AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
           inputs:
             targetType: 'inline'
             workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
             script: |
               export PATH=$(Pipeline.Workspace)/terraform-bin:$PATH
+              terraform init
               terraform plan -out=tfplan
 
         - publish: $(System.DefaultWorkingDirectory)/terraform/tfplan
