@@ -33,12 +33,6 @@ stages:
       steps:
         - checkout: self
 
-        # Configure AWS Credentials for Terraform
-        - task: AWSCLI@1
-          displayName: 'Configure AWS Credentials'
-          inputs:
-            awsCredentials: 'eks-aws-connection'
-            regionName: 'ap-northeast-1'
 
         - task: Bash@3
           displayName: 'Download and Install Terraform'
@@ -51,14 +45,18 @@ stages:
 
         - publish: terraform-bin
           artifact: terraform-bin
+        
 
         - task: Bash@3
           displayName: 'Terraform Init'
+          env:
+            AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+            AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
           inputs:
             targetType: 'inline'
             workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
             script: |
-              ../terraform-bin/terraform init
+              terraform init
 
 # ------------------------------------------
 # Terraform Validate Stage
