@@ -116,6 +116,7 @@ stages:
             workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
             script: |
               export PATH=$(Pipeline.Workspace)/terraform-bin:$PATH
+              terraform init -backend=false
               terraform fmt -check
               terraform validate
 
