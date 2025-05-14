@@ -98,6 +98,14 @@ stages:
         - download: current
           artifact: terraform-bin
 
+        # Fix: Make the Terraform binary executable
+        - task: Bash@3
+          displayName: 'Make Terraform Executable'
+          inputs:
+            targetType: 'inline'
+            script: |
+              chmod +x $(Pipeline.Workspace)/terraform-bin/terraform
+
         - task: Bash@3
           displayName: 'Terraform Fmt & Validate'
           env:
