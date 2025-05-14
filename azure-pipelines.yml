@@ -18,6 +18,7 @@ pr:
 variables:
   - group: vprofilevariables
 
+
 stages:
 # ------------------------------------------
 # Terraform Init Stage
@@ -31,6 +32,13 @@ stages:
         vmImage: 'ubuntu-latest'
       steps:
         - checkout: self
+
+        # Configure AWS Credentials for Terraform
+        - task: AWSCLI@1
+          displayName: 'Configure AWS Credentials'
+          inputs:
+            awsCredentials: 'eks-aws-connection'
+            regionName: 'ap-northeast-1'
 
         - task: Bash@3
           displayName: 'Download and Install Terraform'
@@ -128,6 +136,12 @@ stages:
 
         - download: current
           artifact: tfplan
+
+        # Apply Terraform changes
+        - task: AWSCLI@1
+          inputs:
+            awsCredentials: 'eks-aws-connection'
+            regionName: 'ap-northeast-1'
 
         - task: Bash@3
           displayName: 'Terraform Apply'
